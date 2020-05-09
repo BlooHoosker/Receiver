@@ -8,25 +8,23 @@ import java.util.List;
 
 public class Receiver {
 
-        private DatagramSocket socket;
-        private InetAddress address;
-
-        private long connectionID;
-        private int port = 4000;
+        protected DatagramSocket socket;
+        protected InetAddress address;
+        protected long connectionID;
+        protected int port;
 
         private List<DataPacket> downloadedPackets;
-        private SlidingWindow slidingWindow;
-
-
-
-        public Receiver(DatagramSocket socket, InetAddress address){
+        protected SlidingWindow slidingWindow;
+        
+        public Receiver(DatagramSocket socket, InetAddress address, int port){
             this.socket = socket;
             this.address = address;
+            this.port = port;
             this.downloadedPackets = new ArrayList<>();
         }
 
-        public boolean checkPacket(DataPacket packet){
-            if (connectionID != packet.id || packet.flags != 0x00){
+        protected boolean checkPacket(DataPacket packet){
+            if (connectionID != packet.id || (packet.flags != 0x00 && packet.flags != DataPacket.syn() && packet.flags != DataPacket.rst() && packet.flags != DataPacket.fin())){
                 return false;
             }
             return true;
@@ -38,9 +36,8 @@ public class Receiver {
             sendBytes = DataPacket.toBytes(connectionID, 0, slidingWindow.getConfirmed(), (byte) 0x00, new byte[0]);
             sendPacket = new DatagramPacket(sendBytes, sendBytes.length, address, port);
             try{
-                DataPacket test = new DataPacket(sendBytes, sendBytes.length);
+                //DataPacket test = new DataPacket(sendBytes, sendBytes.length);
                 //System.out.println("Sending: " + test.toString() + '\n');
-                System.out.println();
                 socket.send(sendPacket);
             } catch (IOException e){
                 System.out.println("Error sending/receiving packet");
@@ -91,9 +88,9 @@ public class Receiver {
             System.out.println("Terminating connection");
         }
 
-        public boolean openConnection(){
+        public boolean openConnection(byte[] command){
 
-            byte[] command = {0x01};
+            //byte[] command = {0x01};
             byte[] sendBytes = DataPacket.toBytes(0, 0, 0, DataPacket.syn(), command);
             DatagramPacket sendPacket = new DatagramPacket(sendBytes, sendBytes.length, address, port);
 
@@ -109,13 +106,11 @@ public class Receiver {
                     socket.send(sendPacket);
                     socket.receive(receivePacket);
                 } catch (SocketTimeoutException e){
-                    /*
                     attemptCount++;
                     // if we already tried 20 times;
-                    if (attemptCount >= 20){
+                    if (attemptCount > 20){
                         return false;
                     }
-                    */
                     continue;
                 } catch (IOException e){
                     System.out.println("Error sending/receiving packet");
@@ -127,7 +122,8 @@ public class Receiver {
                     break;
                 }
                 attemptCount++;
-                if (attemptCount >= 20){
+                // if we already tried 20 times;
+                if (attemptCount > 20){
                     return false;
                 }
             }
@@ -138,7 +134,7 @@ public class Receiver {
 
         public boolean downloadFile(){
 
-            slidingWindow = new SlidingWindow(8, 255, 0, this);
+            slidingWindow = new SlidingWindow( 8, 0, 255);
 
             byte[] receiveBytes = new byte[264];
             DatagramPacket receivePacket = new DatagramPacket(receiveBytes, receiveBytes.length);
@@ -150,8 +146,8 @@ public class Receiver {
             while(true){
 
                 // If we sent 20x the same seqNum it has to cancel the connection
-                //attemptCount++;
-                if (attemptCount > 20){
+                attemptCount++;
+                if (attemptCount > 30){
                     return false;
                 }
 
@@ -167,22 +163,23 @@ public class Receiver {
 
                 // Packed gets parsed into DataPacket structure
                 receivedData = new DataPacket(receivePacket.getData(), receivePacket.getLength());
-                System.out.println("Received: " + receivedData.toString());
+                //System.out.println("Received: " + receivedData.toString());
 
                 // Checking parsed packet for errors
-                if (!checkPacket(receivedData)){
+                if (checkPacket(receivedData)){
                     if (receivedData.flags == DataPacket.fin()){
                         return true;
                     } else if (receivedData.flags == DataPacket.rst()){
-                        return false;
+                        return false; // todo idk if it is send or if i just close the conncetion
                     }
-                }
-
-                // Sliding window process
-                List<DataPacket> confirmedPackets = slidingWindow.processPacket(receivedData);
-                if (confirmedPackets.size() != 0){
-                    downloadedPackets.addAll(confirmedPackets);
-                    attemptCount = 0;
+                    // Sliding window process
+                    List<DataPacket> confirmedPackets = slidingWindow.processPacket(receivedData);
+                    if (confirmedPackets.size() != 0){
+                        downloadedPackets.addAll(confirmedPackets);
+                        attemptCount = 0;
+                    }
+                } else {
+                    return false;
                 }
 
                 // Parse our packet to bytes and then create Datagram packet and send
@@ -203,44 +200,6 @@ public class Receiver {
                 System.out.println("Error sending/receiving packet");
                 return false;
             }
-
-            /*
-            byte[] receiveBytes = new byte[264];
-            DatagramPacket receivePacket = new DatagramPacket(receiveBytes, receiveBytes.length);
-
-            int attemptCount = 0;
-            DataPacket receivedData;
-            while(true){
-                attemptCount++;
-                try{
-                    socket.send(sendPacket);
-                    socket.receive(receivePacket);
-                } catch (SocketTimeoutException e){
-
-                    attemptCount++;
-                    // if we already tried 20 times;
-                    if (attemptCount >= 20){
-                        return false;
-                    }
-
-                    continue;
-                } catch (IOException e){
-                    System.out.println("Error sending/receiving packet");
-                    return false;
-                }
-                receivedData = new DataPacket(receivePacket.getData(), receivePacket.getLength());
-                if (receivedData.flags == DataPacket.syn()){
-                    break;
-                }
-                if (attemptCount >= 20){
-                    return false;
-                }
-            }
-
-            connectionID = receivedData.id;
-            return receivedData.data.length == 1 && receivedData.data[0] == 0x01;
-
-            */
 
             return true;
         }
