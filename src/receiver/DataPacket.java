@@ -39,7 +39,7 @@ public class DataPacket {
         }
     }
 
-    public DataPacket(int id, int seqNum, int confirmNum, byte flags, byte[] data){
+    public DataPacket(long id, int seqNum, int confirmNum, byte flags, byte[] data){
         this.id = id;
         this.seqNum = seqNum;
         this.confirmNum = confirmNum;
@@ -73,6 +73,10 @@ public class DataPacket {
         }
 
         return bytes;
+    }
+
+    public byte[] toBytes(){
+        return toBytes(id, seqNum, confirmNum, flags, data);
     }
 
     public static byte syn(){ ;
